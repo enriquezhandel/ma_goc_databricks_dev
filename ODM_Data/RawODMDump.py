@@ -16,7 +16,8 @@ from requests.sessions import Session
 import datetime
 from datetime import datetime, timedelta
 import os
-
+from pyspark.sql.functions import col
+from pyspark.sql.types import DateType, IntegerType,LongType, StructType, StructField, TimestampType, StringType, BooleanType, DoubleType
 
 # Suppress warnings
 warnings.filterwarnings('ignore')
@@ -34,7 +35,13 @@ collibra_dict = {
     "Orbis_Domains": "01924dde-1369-7b94-9a9e-15dd7a4f161e",
     "Data_Quality_Tests": "018f6172-fa1d-711d-929d-db01ab352257",
     "Data_Quality_Rules": "ea07eb48-fc28-448b-b43c-bf46aea73773",
-    "Orbis_4_1": "0191bc4f-ba72-7c3d-a2f5-d2d5cf389d28"
+    "Orbis_4_1": "0191bc4f-ba72-7c3d-a2f5-d2d5cf389d28",
+    "Countries_and_Continents": "37504a5b-8a4c-4569-a58b-35711a3b736b",
+    "States": "0192f66f-e9d1-7a60-b087-fd7ecfe8d876",
+    "IP_Reference_Codes": "dc23b7c0-4915-4398-a230-faac3e91d87a",
+    "Source_Codes_for_Datasets": "fd24fd39-eebf-4259-81c5-aa8692da0fca",
+    "IP_Original_Source_By_Data_Type_Fourth_Party_Datasets": "0192f692-54fa-79b4-be53-743ab4c0714d",
+    "Sources_used_by_IPs": "34d74655-4b26-42b2-a4a5-5405342eb10b"
 }
 
 # Create a session
@@ -55,7 +62,6 @@ def get_yesterday_start_end_unix_timestamps_milliseconds():
     end_of_day_unix_milliseconds = int(end_of_day.timestamp() * 1000)
 
     return date_str, start_of_day_unix_milliseconds, end_of_day_unix_milliseconds
-
 
 # Function to make API calls
 def call_api(url_api, headers_api):
@@ -117,7 +123,14 @@ for dataset_name, view_id in collibra_dict.items():
                 
                 # Convert to Spark DataFrame and write to Parquet
                 sparkDF = spark.createDataFrame(df)
-                display(sparkDF)
+                
+                # Handle specific dataset schema
+                if dataset_name == "IP_Original_Source_By_Data_Type_Fourth_Party_Datasets":
+                    sparkDF = sparkDF.withColumn("Asset_Type_IconCode", col("Asset_Type_IconCode").cast(StringType())) \
+                                     .withColumn("Asset_Type_AcronymCode", col("Asset_Type_AcronymCode").cast(StringType())) \
+                                     .withColumn("Type", col("Type").cast(StringType())) \
+                                     .withColumn("Type_Id", col("Type_Id").cast(StringType()))
+                
                 sparkDF.write.mode("overwrite").parquet(outputDir)
             
             except (pd.errors.ParserError, ValueError) as e:
@@ -128,13 +141,3 @@ for dataset_name, view_id in collibra_dict.items():
             print(f"Failed to fetch CSV data for {dataset_name}: {resp_csv.status_code}")
     else:
         print(f"Failed to fetch configuration for {dataset_name}")
-
-
-# COMMAND ----------
-
-    # "Countries_and_Continents": "37504a5b-8a4c-4569-a58b-35711a3b736b",
-    # "States": "0192f66f-e9d1-7a60-b087-fd7ecfe8d876",
-    # "IP_Reference_Codes": "dc23b7c0-4915-4398-a230-faac3e91d87a",
-    # "Source_Codes_for_Datasets": "fd24fd39-eebf-4259-81c5-aa8692da0fca",
-    # "IP_Original_Source_By_Data_Type_Fourth_Party_Datasets": "0192f692-54fa-79b4-be53-743ab4c0714d",
-    # "Sources_used_by_IPs": "34d74655-4b26-42b2-a4a5-5405342eb10b",
