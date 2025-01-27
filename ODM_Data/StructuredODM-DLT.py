@@ -170,7 +170,9 @@ def structured_dataqualitytests():
         "Business_Rule_implements_Column_Full_Name",
         "Business_Rule_implements_Column_Asset_Id",
         "Data_Quality_Rule_classified_by_Data_Quality_Dimension_Full_Name",
-        "Data_Quality_Rule_classified_by_Data_Quality_Dimension_Asset_Id"
+        "Data_Quality_Rule_classified_by_Data_Quality_Dimension_Asset_Id",
+        "dataset_Name",
+        "snapshot_date"
     ]
     structured_dataqualitytests = raw_dataqualitytests.select(*selected_columns)
     # display(structured_dataqualitytests.limit(10))
@@ -205,7 +207,9 @@ def structured_dataqualitytests():
         "Data_Quality_Rule_governs_Column_Full_Name",
         "Data_Quality_Rule_governs_Column_Asset_Id",
         "Rule_is_implemented_by_Business_Rule_Full_Name",
-        "Rule_is_implemented_by_Business_Rule_Asset_Id"
+        "Rule_is_implemented_by_Business_Rule_Asset_Id",
+        "dataset_Name",
+        "snapshot_date"
     ]
     structured_dataqualityrules = raw_dataqualityrules.select(*selected_columns)
     return structured_dataqualityrules
@@ -248,7 +252,9 @@ def structured_orbis4_1():
         "Repetition_Criteria",
         "Ratio_Type",
         "Request_Code",
-        "note"
+        "note",
+        "dataset_Name",
+        "snapshot_date"
     ]
     structured_orbis4_1 = raw_orbis4_1.select(*selected_columns)
     return structured_orbis4_1
