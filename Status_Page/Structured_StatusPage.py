@@ -14,8 +14,8 @@ from pyspark.sql import functions as F
 )
 def raw_status_page():
     raw_status_page = spark.read.table("ds_goc_bronze_dev.ds_goc_bronze_dev.raw_status_page")
-    # raw_user_actions.createOrReplaceTempView("raw_user_actions")
-    # display(raw_user_actions.limit(10))
+    # raw_status_page.createOrReplaceTempView("raw_status_page")
+    # display(raw_status_page.limit(10))
     return raw_status_page
 
 # COMMAND ----------
@@ -27,16 +27,25 @@ def raw_status_page():
 )
 def structured_status_page():
     raw_status_page = dlt.read("raw_status_page")
-    # Filter the dataset to remove the old_version for the column StatusPageName
-    # CleanFinDF = raw_status_page.filter(col("StatusPageName") != "old_version")
-
+    
+    # Filter out rows where StatusPageName contains 'old_version'
+    filtered_raw_status_page = raw_status_page.filter(~col("StatusPageName").contains("old_version"))
+    
+    # Sort the dataset by product name before making the grouping and collect list
+    sorted_raw_status_page = filtered_raw_status_page.orderBy("StatusPageName")
+    
     # Group by Email, FirstName, LastName and aggregate the products
-    PivotFinDF = raw_status_page.groupBy("Email", "FirstName", "LastName","fDashBoard","snapshot_date") \
-                .agg(F.collect_list("productName").alias("productName"),
-                    F.count("productName").alias("controlProduct")) \
-                .withColumn("productName", F.expr("array_distinct(productName)")) \
-                .withColumn("productName", F.expr("array_join(productName, ';')")) \
-                .orderBy("Email")
+    PivotFinDF = sorted_raw_status_page.groupBy(
+        "Email", "FirstName", "LastName", "fDashBoard", "CompanyNameSource", "snapshot_date"
+    ).agg(
+        F.collect_list("StatusPageName").alias("StatusPageNameList"),
+        F.count("StatusPageName").alias("StatusPageNameCount")
+    ).withColumn(
+        "StatusPageNameList", F.expr("array_distinct(StatusPageNameList)")
+    ).withColumn(
+        "StatusPageName", F.expr("array_join(StatusPageNameList, ';')")
+    ).drop("StatusPageNameList").orderBy("Email")
+    
     # Define a regex pattern for email validation
     email_regex = '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
 
@@ -61,6 +70,5 @@ def structured_status_page():
         .when((col("Email") == "") & (col("FirstName") == "") & (col("LastName") == ""), "blankEmail;blankName;blankLastName")
         .otherwise("valid")
     )
-    # display(structured_status_page)
+    # display(structured_status_page.limit(10))
     return structured_status_page
-

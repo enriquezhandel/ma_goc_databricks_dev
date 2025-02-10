@@ -73,7 +73,7 @@ SELECT
       ,[Expires]
       ,[LastLogin]
       ,[Company ID Source]
-      ,[Company Name Source]
+      ,[Company Name Source] as CompanyNameSource
       ,[UserId]
       ,[UserType]
       ,[prodSubscrId]
@@ -95,6 +95,37 @@ display(FinDf.limit(10))
 
 # COMMAND ----------
 
+# import os
+
+# path = "/Volumes/ds_goc_volumes_dev/external_data/ma-ds-goc-prd-prod-storage-layer-eu-central-1/raw_goc_nosara_lkh/rawStatusPageSubscriptions/"
+# for root, dirs, files in os.walk(path):
+#     parquet_files = [file for file in files if file.endswith('.parquet')]
+#     if parquet_files:
+#         print("Root:", root)
+#         print("Parquet Files:", parquet_files)
+#         for parquet_file in parquet_files:
+#             file_path = os.path.join(root, parquet_file)
+#             df = spark.read.parquet(file_path)
+#             # Drop the 'Company Name Source' column
+#             df = df.drop("Company Name Source")
+
+#             # Join with FinDf on the 'Email', 'FirstName', and 'LastName' columns
+#             joined_df = df.join(FinDf.select("Email", "FirstName", "LastName", "CompanyNameSource"), 
+#                                 on=["Email", "FirstName", "LastName"], 
+#                                 how="left")
+            
+#             # Remove duplicates
+#             joined_df = joined_df.dropDuplicates()
+            
+#             # Display the first 10 results for quality check
+#             display(joined_df.limit(10))
+            
+#             # Overwrite the original parquet file with the updated DataFrame
+#             joined_df.write.mode("overwrite").parquet(file_path)
+#         print("-" * 50)
+
+# COMMAND ----------
+
 dfCSV = spark.read.csv("/Volumes/ds_goc_volumes_dev/external_data/ma-ds-goc-prd-prod-storage-layer-eu-central-1/auxiliar_docs/StatusPage_ProductsNames.csv", header=True, inferSchema=True)
 display(dfCSV)
 
@@ -111,10 +142,14 @@ CleanFinDF = FinDf.join(dfCSV, FinDf.productName == dfCSV.productName, "left") \
                           FinDf.ProductLastLogin.alias("ProductLastLogin"),
                           FinDf.fDashBoard.alias("fDashBoard"),
                           FinDf.snapshotdate_db.alias("snapshot_date"),
-                          dfCSV.StatusPageName.alias("StatusPageName")) \
+                          dfCSV.StatusPageName.alias("StatusPageName"),
+                          FinDf.CompanyNameSource.alias("CompanyNameSource")) \
                   .orderBy("Email")
 
-## Generate logic for outputting dataset 
-# display(CleanFinDF.limit(1000))
-outputAlerts = "/Volumes/ds_goc_volumes_dev/external_data/ma-ds-goc-prd-prod-storage-layer-eu-central-1/raw_goc_nosara_lkh/rawStatusPageSubscriptions/{}/".format(date_str)
-CleanFinDF.write.mode("overwrite").parquet(outputAlerts)
+# Check if the dataframe is empty
+if CleanFinDF.head(1):
+    # Generate logic for outputting dataset 
+    outputAlerts = "/Volumes/ds_goc_volumes_dev/external_data/ma-ds-goc-prd-prod-storage-layer-eu-central-1/raw_goc_nosara_lkh/rawStatusPageSubscriptions/{}/".format(date_str)
+    CleanFinDF.write.mode("overwrite").parquet(outputAlerts)
+else:
+    raise ValueError("The extracted dataframe CleanFinDF is empty.")

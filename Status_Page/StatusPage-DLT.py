@@ -15,7 +15,8 @@ schemaStatusPage = StructType([
     StructField("ProductLastLogin", DateType(), True),
     StructField("fDashBoard", IntegerType(), True),
     StructField("snapshot_date", DateType(), True),
-    StructField("StatusPageName", StringType(), True)
+    StructField("StatusPageName", StringType(), True),
+    StructField("CompanyNameSource", StringType(), True)
 ])
 
 @dlt.table(
