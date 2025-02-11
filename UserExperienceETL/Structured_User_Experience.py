@@ -2,6 +2,7 @@
 import dlt
 from pyspark.sql.functions import col, hour, date_sub, trunc, add_months, to_date, unix_timestamp, when, trim, count, sum as _sum, last_day
 
+
 # COMMAND ----------
 
 @dlt.view(
