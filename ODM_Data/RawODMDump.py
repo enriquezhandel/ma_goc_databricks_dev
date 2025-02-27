@@ -1,7 +1,7 @@
 # Databricks notebook source
 import requests, json
 import warnings
-from pyspark.sql.functions import col, explode, size, trim
+from pyspark.sql.functions import col, explode, size, trim, current_date
 import logging
 import datetime
 from datetime import datetime, timedelta
@@ -168,7 +168,10 @@ for dataset_name, view_id in collibra_dict.items():
             # Check the row count after the join
             row_count = finalDFALL.count()
             logging.info(f"Final Row Count after SQL Join: {row_count}")
-
+            # finalDFALL.printSchema()
+            # Add a column for the current date named snapshot_date
+            finalDFALL = finalDFALL.withColumn("snapshot_date", current_date())
+            
             # Writing dataset to Parquet
             finalDFALL.write.mode("overwrite").parquet(outputDir)
 
