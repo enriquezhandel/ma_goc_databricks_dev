@@ -43,6 +43,11 @@ try:
     os.mkdir("/Volumes/ds_goc_volumes_dev/external_data/ma-ds-goc-prd-prod-storage-layer-eu-central-1/raw_goc_nosara_lkh/rawOrbisAWSModuleTracking/{}".format(date_str))
 except:
     pass
+try:
+    os.mkdir("/Volumes/ds_goc_volumes_dev/external_data/ma-ds-goc-prd-prod-storage-layer-eu-central-1/raw_goc_nosara_lkh/rawComCatV2RAModel/{}".format(date_str))
+except:
+    pass
+
 
 # COMMAND ----------
 
@@ -58,7 +63,12 @@ tableAlerts = dbutils.secrets.get(scope="goc_secrets", key="sqlTableCatalystAler
 tableTBLTracks = dbutils.secrets.get(scope="goc_secrets", key="sqlTableTBLTracks")
 tableTBLModules = dbutils.secrets.get(scope="goc_secrets", key="sqlTableTBLModules")
 tableTBLUsers = dbutils.secrets.get(scope="goc_secrets", key="sqlTableTBLUsers")
-
+tableCustomFields = dbutils.secrets.get(scope="goc_secrets", key="sqlTableCustomFields")
+tableCustomEntitiesType = dbutils.secrets.get(scope="goc_secrets", key="sqlTableCustomEntities")
+tableCustomEntities = dbutils.secrets.get(scope="goc_secrets", key="sqlTableCustom_Entities")
+tableCustomString = dbutils.secrets.get(scope="goc_secrets", key="sqlTableCustomString")
+tableFinUsers = dbutils.secrets.get(scope="goc_secrets", key="sqlTableFinUsers")
+tableFinAccounts = dbutils.secrets.get(scope="goc_secrets", key="sqlTableFinAccounts")
 
 # COMMAND ----------
 
@@ -210,3 +220,205 @@ dfAlerts = JDBC_Query_connection(sqlServer, sqlDBCatalystMVC, jdbc_username, jdb
 outputAlerts = "/Volumes/ds_goc_volumes_dev/external_data/ma-ds-goc-prd-prod-storage-layer-eu-central-1/raw_goc_nosara_lkh/rawComCatV2Alerts/{}/".format(date_str)
 dfAlerts.write.mode("overwrite").parquet(outputAlerts)
 # display(dfAlerts.limit(10))
+
+# COMMAND ----------
+
+from pyspark.sql.functions import broadcast, when, expr, current_date, lower, col
+from pyspark.sql import SparkSession
+
+class DataProcessor:
+    def __init__(self, sql_server, sql_db, username, password):
+        self.sql_server = sql_server
+        self.sql_db = sql_db
+        self.username = username
+        self.password = password
+        self.spark = SparkSession.builder.appName("DataProcessor").getOrCreate()
+
+    def execute_jdbc_query(self, query):
+        return JDBC_Query_connection(self.sql_server, self.sql_db, self.username, self.password, query)
+
+    def create_temp_view(self, df, view_name):
+        df.createOrReplaceTempView(view_name)
+
+    def add_custom_entity_type(self):
+        query = f"""
+        SELECT * FROM {tableCustomEntitiesType} with (nolock)
+        """
+        df = self.execute_jdbc_query(query)
+        self.create_temp_view(df, "customEntityTypes")
+
+    def add_custom_fields(self):
+        query = f"""
+        SELECT [Id], [EntityType], [Name], [DataType], [LookupType], [Attributes], [ForeignEntityType]
+        FROM {tableCustomFields} with (nolock)
+        """
+        df = self.execute_jdbc_query(query)
+        self.create_temp_view(df, "customFields")
+
+    def add_custom_entities(self):
+        query = f"""
+            SELECT 
+                *
+            FROM {tableCustomEntities} with (nolock)
+        """
+        df = self.execute_jdbc_query(query)
+        self.create_temp_view(df, "customEntities")
+
+
+    def add_ra_model(self):
+        query = f"""
+        SELECT 
+            ra.ProcessId, ra.RequestedOn, ra.UserId, ra.SharingId, ra.ProductId,
+            CASE ra.TaskType 
+                WHEN 0 THEN 'Score' 
+                WHEN 2 THEN 'RecalculateScore' 
+                WHEN 3 THEN 'FullScore' 
+                WHEN 4 THEN 'FullRecalculateScore' 
+                WHEN 5 THEN 'FullScoreQueueing' 
+                WHEN 6 THEN 'FullRecalculateScoreQueueing' 
+                WHEN 7 THEN 'StartOrRefresh' 
+                WHEN 8 THEN 'SingleFullScore' 
+                ELSE convert(varchar(max), ra.TaskType) 
+            END AS TaskType,
+            datediff(ms, ra.RequestedOn, ra.StartedOn) as QueueDurationInMS,
+            datediff(ms, ra.StartedOn, ra.FinishedOn) as ComputeDurationInMS,
+            datediff(ms, ra.RequestedOn, ra.FinishedOn) as TotalDurationInMS
+        FROM {tableRA} ra with (nolock)
+        WHERE ra.itemtype = 1 AND ra.SyncStatus = 3 AND ra.startedOn >= CAST(DATEADD(DAY, DATEDIFF(DAY, 0, GETUTCDATE())-1, 0) AS DATETIME)
+            AND ra.startedOn < CAST(DATEADD(DAY, DATEDIFF(DAY, 0, GETUTCDATE()), 0) AS DATETIME)
+        """
+        df = self.execute_jdbc_query(query)
+        self.create_temp_view(df, "dfRAModel")
+    
+    def add_custom_strings(self):
+        query = f"""
+            SELECT 
+                 [Id]
+                ,[EntityId]
+                ,[FieldId]
+                ,[Value]
+            FROM {tableCustomString} cv with (nolock)
+        """
+        df = self.execute_jdbc_query(query)
+        self.create_temp_view(df, "dfCustomString")
+
+    def modelIDRA(self):
+        custom_fields_df = self.spark.table("customFields").cache()
+        custom_entities_df = self.spark.table("customEntities").cache()
+        custom_string_values_df = self.spark.table("dfCustomString").cache()
+        risk_assessments_df = self.spark.table("dfRAModel").cache()
+        custom_entity_types_df = self.spark.table("customEntityTypes").cache()
+
+        # Create baseRAID DataFrame
+        base_raid_df = custom_fields_df.join(
+            custom_entity_types_df,
+            lower(custom_fields_df.EntityType) == lower(custom_entity_types_df.Id)
+        ).filter(
+            (custom_fields_df.Name == 'CF_RA_Id') & 
+            (custom_entity_types_df.Name == 'CFE_RA') & 
+            (custom_entity_types_df.DatabaseContext == 'Companies')
+        ).select(custom_fields_df.Id)
+
+        # Collect baseRAID IDs to use in the join condition
+        base_raid_ids = [row.Id for row in base_raid_df.collect()]
+
+        # Perform the main query with broadcast joins
+        result_df = risk_assessments_df.join(
+            broadcast(custom_string_values_df),
+            (custom_string_values_df.FieldId.isin(base_raid_ids)) & 
+            (lower(custom_string_values_df.Value) == lower(risk_assessments_df.ProcessId))
+        ).join(
+            broadcast(custom_entities_df.alias("ae")),
+            lower(custom_string_values_df.EntityId) == lower(col("ae.Id"))
+        ).join(
+            broadcast(custom_entities_df.alias("me")),
+            lower(col("ae.ParentId")) == lower(col("me.Id"))
+        ).join(
+            broadcast(custom_string_values_df.alias("mv")),
+            lower(col("me.Id")) == lower(col("mv.EntityId"))
+        ).select(
+            risk_assessments_df.ProcessId.alias("RAid"),
+            risk_assessments_df.SharingId,
+            col("mv.Value").alias("modelID"),
+            col("mv.Id"),
+            col("mv.EntityId"),
+            col("mv.FieldId"),
+            col("mv.Value")
+        ).orderBy(risk_assessments_df.ProcessId.desc())
+        
+        self.create_temp_view(result_df, "dfModelRA") 
+
+    def add_fin_users(processor):
+        query = f"""
+        SELECT DISTINCT [Id], [AccountId], [UserName]
+        FROM {tableFinUsers} with (nolock)
+        WHERE userName IS NOT NULL
+        """
+        df = processor.execute_jdbc_query(query)
+        processor.create_temp_view(df, "usersClean")
+
+    def add_fin_accounts(processor):
+        query = f"""
+        SELECT [Id], [PrimaryAccountId], [AccountHierarchyId], [Active], [AccountName], [CompanyName]
+        FROM {tableFinAccounts} with (nolock)
+        """
+        df = processor.execute_jdbc_query(query)
+        processor.create_temp_view(df, "accountsClean")
+
+    def create_user_mapping(processor):
+        query = """
+        SELECT uc.userName, uc.Id, ac.AccountName
+        FROM usersClean uc
+        INNER JOIN accountsClean ac ON uc.AccountId = ac.Id
+        """
+        df = spark.sql(query)
+        processor.create_temp_view(df, "dfUserMapping")
+
+    def create_final_view(processor):
+        # Load the DataFrames from the temporary views
+        df_ra_model = spark.table("dfRAModel").cache()
+        df_user_mapping = spark.table("dfUserMapping").cache()
+        df_custom_string_clean = spark.table("dfModelRA").cache()
+
+        # Perform the joins using DataFrame API and broadcast the smaller DataFrames
+        df_final = df_ra_model.join(
+            broadcast(df_user_mapping),
+            df_ra_model.UserId == df_user_mapping.Id,
+            "left"
+        ).join(
+            broadcast(df_custom_string_clean),
+            lower(df_custom_string_clean.RAid) == lower(df_ra_model.ProcessId),
+            "left"
+        ).select(
+            df_ra_model.ProcessId.alias("RAid"),
+            df_ra_model.RequestedOn,
+            df_user_mapping.userName,
+            df_user_mapping.AccountName,
+            df_ra_model.UserId,
+            df_ra_model.SharingId,
+            df_ra_model.ProductId,
+            df_ra_model.TaskType,
+            df_ra_model.QueueDurationInMS,
+            df_ra_model.ComputeDurationInMS,
+            df_ra_model.TotalDurationInMS,
+            df_custom_string_clean.Value.alias("modelID")
+        ).withColumn("snapshot_date", current_date()-1)
+
+        # Create or replace the temporary view with the final DataFrame
+        outputRAModel = "/Volumes/ds_goc_volumes_dev/external_data/ma-ds-goc-prd-prod-storage-layer-eu-central-1/raw_goc_nosara_lkh/rawComCatV2RAModel/{}/".format(date_str)
+        display(df_final.limit(10))
+        df_final.write.mode("overwrite").parquet(outputRAModel)
+
+
+
+processor = DataProcessor(sqlServer, sqlDBCatalystMVC, jdbc_username, jdbc_password)
+processor.add_custom_fields()
+processor.add_custom_entity_type()
+processor.add_custom_entities()
+processor.add_custom_strings()
+processor.add_ra_model()
+processor.add_fin_users()
+processor.add_fin_accounts()
+processor.create_user_mapping()
+processor.modelIDRA()
+processor.create_final_view()

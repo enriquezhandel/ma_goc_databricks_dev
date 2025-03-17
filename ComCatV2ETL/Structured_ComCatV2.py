@@ -1,6 +1,64 @@
 # Databricks notebook source
 import dlt
-from pyspark.sql.functions import col, hour, date_sub, trunc, add_months, to_date, unix_timestamp, when, trim, count, sum as _sum, expr, avg, stddev, last_day
+from pyspark.sql import Window, functions as F; from pyspark.sql.functions import col, hour, date_sub, trunc, add_months, to_date, unix_timestamp, when, trim, count, sum as _sum, expr, avg, stddev, last_day
+
+# COMMAND ----------
+
+@dlt.table(
+    name="structured_comcatV2_ra_model",
+    comment="Curated version of the table for RAModel Transformation",
+    table_properties={"quality": "silver"}
+)
+def delta_live_comcatv2_ra_model():
+    df = spark.read.table("ds_goc_bronze_dev.ds_goc_bronze_dev.raw_comcatv2_ra_model")
+    
+    df = df.withColumn("ProductName", 
+                       when(col("ProductId") == 171, "ComplianceV2")
+                       .when(col("ProductId") == 173, "CreditCatalyst")
+                       .when(col("ProductId") == 174, "ProcurementCatalyst"))
+    
+    df = df.withColumn("waiting_seconds", col("QueueDurationInMS") / 1000) \
+           .withColumn("execution_seconds", col("ComputeDurationInMS") / 1000) \
+           .withColumn("duration_seconds", col("TotalDurationInMS") / 1000)
+
+    df.select("RAid", "RequestedOn", "UserName", "AccountName", "UserId", "SharingId", 
+                     "ProductId", "ProductName", "TaskType", "QueueDurationInMS", 
+                     "ComputeDurationInMS", "TotalDurationInMS", "modelID", 
+                     "waiting_seconds", "execution_seconds", "duration_seconds", "snapshot_date")
+    df.createOrReplaceTempView("structured_comcatv2_ra_model")
+    return df
+
+# COMMAND ----------
+
+@dlt.table(
+    name="structured_comcatV2_ra_model_kpis",
+    comment="Aggregated metrics for RAModel Transformation",
+    table_properties={"quality": "silver"}
+)
+def delta_live_aggregated_comcatv2_ra_model():
+    df = spark.table("structured_comcatv2_ra_model")
+    
+    window_spec = Window.partitionBy("snapshot_date", "AccountName", "ProductName")
+    
+    df = df.withColumn("avg_waiting_seconds", avg("waiting_seconds").over(window_spec)) \
+           .withColumn("median_waiting_seconds", expr("percentile_approx(waiting_seconds, 0.5)").over(window_spec)) \
+           .withColumn("p90_waiting_seconds", expr("percentile_approx(waiting_seconds, 0.9)").over(window_spec)) \
+           .withColumn("p95_waiting_seconds", expr("percentile_approx(waiting_seconds, 0.95)").over(window_spec)) \
+           .withColumn("avg_execution_seconds", avg("execution_seconds").over(window_spec)) \
+           .withColumn("median_execution_seconds", expr("percentile_approx(execution_seconds, 0.5)").over(window_spec)) \
+           .withColumn("p90_execution_seconds", expr("percentile_approx(execution_seconds, 0.9)").over(window_spec)) \
+           .withColumn("p95_execution_seconds", expr("percentile_approx(execution_seconds, 0.95)").over(window_spec)) \
+           .withColumn("avg_duration_seconds", avg("duration_seconds").over(window_spec)) \
+           .withColumn("median_duration_seconds", expr("percentile_approx(duration_seconds, 0.5)").over(window_spec)) \
+           .withColumn("p90_duration_seconds", expr("percentile_approx(duration_seconds, 0.9)").over(window_spec)) \
+           .withColumn("p95_duration_seconds", expr("percentile_approx(duration_seconds, 0.95)").over(window_spec))
+    
+    df = df.select("AccountName", "SharingId", "ProductId", "ProductName", "snapshot_date", 
+                   "avg_waiting_seconds", "median_waiting_seconds", "p90_waiting_seconds", "p95_waiting_seconds", 
+                   "avg_execution_seconds", "median_execution_seconds", "p90_execution_seconds", "p95_execution_seconds", 
+                   "avg_duration_seconds", "median_duration_seconds", "p90_duration_seconds", "p95_duration_seconds").distinct()
+    
+    return df
 
 # COMMAND ----------
 
@@ -80,101 +138,6 @@ def structured_comcatV2_alerts():
     
     # display(structured_comcatV2_alerts.limit(10))
     return structured_comcatV2_alerts
-
-# COMMAND ----------
-
-# @dlt.table(
-#     name="structured_comcatV2_riskassesmentKPIs",
-#     comment="This table reads and processes data from a source and writes it to a Delta table",
-#     table_properties={"quality": "silver"}
-# )
-# def structured_comcatV2_riskassesmentKPIs():
-#     raw_comcatv2_riskassesment = dlt.read("raw_comcatv2_riskassesment")
-#     structured_comcatV2_riskassesmentKPIs = spark.sql("""
-#     WITH overall AS (
-#         SELECT
-#             AVG(wait_seconds) AS avg_waiting_seconds,
-#             AVG(execution_seconds) AS avg_execution_seconds,
-#             STDDEV(wait_seconds) AS stddev_waiting_seconds,
-#             STDDEV(execution_seconds) AS stddev_execution_seconds
-#         FROM raw_comcatv2_riskassesment
-#     ),
-#     partitioned AS (
-#         SELECT
-#             SharingId,
-#             AVG(wait_seconds) AS avg_waiting_seconds,
-#             AVG(execution_seconds) AS avg_execution_seconds,
-#             COUNT(*) AS transaction_count
-#         FROM raw_comcatv2_riskassesment
-#         GROUP BY SharingId
-#     ),
-#     weighted_avg AS (
-#         SELECT
-#             AVG(avg_waiting_seconds) AS weighted_avg_waiting_seconds,
-#             AVG(avg_execution_seconds) AS weighted_avg_execution_seconds
-#         FROM partitioned
-#     ),
-#     percentiles AS (
-#         SELECT
-#             MEDIAN(wait_seconds) AS median_waiting_seconds,
-#             MEDIAN(execution_seconds) AS median_execution_seconds,
-#             PERCENTILE_CONT(0.90) WITHIN GROUP (ORDER BY wait_seconds) AS p90_waiting_seconds,
-#             PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY wait_seconds) AS p95_waiting_seconds,
-#             PERCENTILE_CONT(0.90) WITHIN GROUP (ORDER BY execution_seconds) AS p90_execution_seconds,
-#             PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY wait_seconds) AS p95_execution_seconds
-#         FROM raw_comcatv2_riskassesment
-        
-#     ),
-#     time_based AS (
-#         SELECT
-#             DATE(RequestedOn) AS transaction_day,
-#             STDDEV(wait_seconds) AS daily_stddev_waiting_seconds,
-#             STDDEV(execution_seconds) AS daily_stddev_execution_seconds,
-#             MEDIAN(wait_seconds) AS daily_median_waiting_seconds,
-#             MEDIAN(execution_seconds) AS daily_median_execution_seconds,
-#             AVG(wait_seconds) AS daily_avg_waiting_seconds,
-#             AVG(execution_seconds) AS daily_avg_execution_seconds,
-#             COUNT(*) AS daily_num_task,
-#             PERCENTILE_CONT(0.90) WITHIN GROUP (ORDER BY wait_seconds) AS daily_p90_waiting_seconds,
-#             PERCENTILE_CONT(0.90) WITHIN GROUP (ORDER BY execution_seconds) AS daily_p90_execution_seconds,
-#             PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY wait_seconds) AS daily_p95_waiting_seconds,
-#             PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY execution_seconds) AS daily_p95_execution_seconds
-#         FROM raw_comcatv2_riskassesment
-#         GROUP BY 
-#             transaction_day
-#         ORDER BY
-#             transaction_day
-#     )
-#     SELECT DISTINCT
-#         overall.avg_waiting_seconds,
-#         overall.avg_execution_seconds,
-#         overall.stddev_waiting_seconds,
-#         overall.stddev_execution_seconds,
-#         weighted_avg.weighted_avg_waiting_seconds,
-#         weighted_avg.weighted_avg_execution_seconds,
-#         percentiles.median_waiting_seconds,
-#         percentiles.median_execution_seconds,
-#         percentiles.p90_waiting_seconds,
-#         percentiles.p95_waiting_seconds,
-#         percentiles.p90_execution_seconds,
-#         percentiles.p95_execution_seconds,
-#         time_based.daily_avg_waiting_seconds,
-#         time_based.daily_avg_execution_seconds,
-#         time_based.daily_median_waiting_seconds,
-#         time_based.daily_median_execution_seconds,
-#         time_based.daily_num_task,
-#         time_based.daily_p90_waiting_seconds,
-#         time_based.daily_p90_execution_seconds,
-#         time_based.daily_p95_waiting_seconds,
-#         time_based.daily_p95_execution_seconds,
-#         time_based.daily_stddev_waiting_seconds,
-#         time_based.daily_stddev_execution_seconds,
-#         time_based.transaction_day
-#     FROM overall, weighted_avg, percentiles, time_based
-#     """)
-#     structured_comcatV2_riskassesmentKPIs.createOrReplaceTempView("structured_comcatV2_riskassesmentKPIs")
-#     display(structured_comcatV2_riskassesmentKPIs.limit(10))
-#     return structured_comcatV2_riskassesmentKPIs
 
 # COMMAND ----------
 

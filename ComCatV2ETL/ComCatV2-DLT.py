@@ -4,6 +4,34 @@ from pyspark.sql.types import DateType, IntegerType,LongType, StructType, Struct
 
 # COMMAND ----------
 
+schemaRAModel = StructType([
+    StructField("RAid", StringType(), True),
+    StructField("RequestedOn", TimestampType(), True),
+    StructField("UserName", StringType(), True),
+    StructField("AccountName", StringType(), True),
+    StructField("UserId", IntegerType(), True),
+    StructField("SharingId", IntegerType(), True),
+    StructField("ProductId", IntegerType(), True),
+    StructField("TaskType", StringType(), True),
+    StructField("QueueDurationInMS", LongType(), True),
+    StructField("ComputeDurationInMS", LongType(), True),
+    StructField("TotalDurationInMS", LongType(), True),
+    StructField("modelID", StringType(), True),
+    StructField("snapshot_date", DateType(), True)
+])
+
+@dlt.table(
+    comment="This stream the Risk Assesment raw format",
+    name="raw_comcatv2_RA_Model"
+)
+def RawRA():
+    path = "/Volumes/ds_goc_volumes_dev/external_data/ma-ds-goc-prd-prod-storage-layer-eu-central-1/raw_goc_nosara_lkh/rawComCatV2RAModel/*"
+    raw_comcatv2_RAModel = spark.readStream.format("parquet").schema(schemaRAModel).option("path", path).load()
+    raw_comcatv2_RAModel = raw_comcatv2_RAModel.filter("modelID IS NOT NULL")
+    return raw_comcatv2_RAModel
+
+# COMMAND ----------
+
 schemaTracking = StructType([
     StructField("TrackId", StringType(), True),
     StructField("CreationDate", TimestampType(), True),
