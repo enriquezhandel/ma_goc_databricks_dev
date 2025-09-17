@@ -29,23 +29,24 @@ def structured_status_page():
     raw_status_page = dlt.read("raw_status_page")
     
     # Filter out rows where StatusPageName contains 'old_version'
-    filtered_raw_status_page = raw_status_page.filter(~col("StatusPageName").contains("old_version"))
+    filtered_raw_status_page = raw_status_page.filter(
+        (~col("StatusPageName").contains("old_version")) &
+        (col("StatusPageName").isin("Orbis", "Compliance Catalyst V2", "Credit Catalyst V2", "Supply Chain Catalyst"))
+    )
     
     # Sort the dataset by product name before making the grouping and collect list
     sorted_raw_status_page = filtered_raw_status_page.orderBy("StatusPageName")
-    
+
     # Group by Email, FirstName, LastName and aggregate the products
     PivotFinDF = sorted_raw_status_page.groupBy(
-        "Email", "FirstName", "LastName", "fDashBoard", "CompanyNameSource", "snapshot_date"
-    ).agg(
-        F.collect_list("StatusPageName").alias("StatusPageNameList"),
-        F.count("StatusPageName").alias("StatusPageNameCount")
-    ).withColumn(
-        "StatusPageNameList", F.expr("array_distinct(StatusPageNameList)")
-    ).withColumn(
-        "StatusPageName", F.expr("array_join(StatusPageNameList, ';')")
-    ).drop("StatusPageNameList").orderBy("Email")
-    
+    "Email", "FirstName", "LastName", "fDashBoard", "CompanyNameSource", "snapshot_date"
+    ).agg(F.array_sort(F.collect_list("StatusPageName")).alias("StatusPageNameList"),
+          F.count("StatusPageName").alias("StatusPageNameCount")
+          ).withColumn(
+            "StatusPageNameList", F.expr("array_distinct(StatusPageNameList)")
+          ).withColumn("StatusPageName", F.expr("array_join(StatusPageNameList, ';')")
+          ).drop("StatusPageNameList").orderBy("Email")
+
     # Define a regex pattern for email validation
     email_regex = '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
 

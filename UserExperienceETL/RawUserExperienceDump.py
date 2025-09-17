@@ -1,5 +1,5 @@
 # Databricks notebook source
-!pip install elasticsearch
+!pip install elasticsearch==8.13.2
 
 # COMMAND ----------
 
@@ -32,9 +32,15 @@ print(start_time)
 disable_warnings()
 host_url = host_url
 token = token_elk
+# client = Elasticsearch(
+#     [host_url],
+#     api_key=token_elk,
+#     verify_certs=False
+# )
+
 client = Elasticsearch(
     host_url,
-    api_key=token_elk,
+    api_key=token,
     verify_certs=False
 )
 
@@ -75,24 +81,28 @@ except:
 
 # COMMAND ----------
 
-# Prepare to scroll search
-scroll = '20m'  # keep the search context alive for this long
-size = 100  # number of results per scroll batch
+scroll = "2m"
+size = 100
+
 query = {
     "range": {
         "startTime": {
-            "gte": "{}".format(start_of_today), 
-            "lte": "{}".format(end_of_today),
+            "gte": start_of_today,
+            "lte": end_of_today
         }
     }
 }
-# query = {"match_all": {}}
+
 response = client.search(
     index="doc",
-    scroll=scroll,
-    size=size,
-    body={"query": query})
-# print(response)
+    body={
+        "query": query,
+        "size": size
+    },
+    scroll=scroll
+)
+print(response)
+
 
 # COMMAND ----------
 

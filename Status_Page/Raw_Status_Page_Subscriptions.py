@@ -153,3 +153,143 @@ if CleanFinDF.head(1):
     CleanFinDF.write.mode("overwrite").parquet(outputAlerts)
 else:
     raise ValueError("The extracted dataframe CleanFinDF is empty.")
+
+# COMMAND ----------
+
+# import os
+# from pyspark.sql import SparkSession
+# from pyspark.sql.functions import col
+# from datetime import datetime
+
+# class DateUtils:
+#     """Utility class for date-related operations."""
+#     @staticmethod
+#     def get_yesterday_start_end_unix_timestamps_milliseconds():
+#         yesterday = datetime.now()
+#         date_str = yesterday.strftime('%Y-%m-%d')
+#         start_of_day = yesterday.replace(hour=0, minute=0, second=0, microsecond=0)
+#         end_of_day = yesterday.replace(hour=23, minute=59, second=59, microsecond=999999)
+#         start_of_day_unix_milliseconds = int(start_of_day.timestamp() * 1000)
+#         end_of_day_unix_milliseconds = int(end_of_day.timestamp() * 1000)
+#         return date_str, start_of_day_unix_milliseconds, end_of_day_unix_milliseconds
+
+
+# class FileManager:
+#     """Handles file system operations."""
+#     @staticmethod
+#     def create_directory_if_not_exists(directory_path):
+#         try:
+#             os.makedirs(directory_path, exist_ok=True)
+#         except Exception as e:
+#             raise IOError(f"Failed to create directory {directory_path}: {e}")
+
+
+# class JDBCConnection:
+#     """Handles JDBC connection and data retrieval."""
+#     def __init__(self, server, database, username, password):
+#         self.server = server
+#         self.database = database
+#         self.username = username
+#         self.password = password
+
+#     def get_jdbc_url(self):
+#         return (f"jdbc:{self.server};"
+#                 f"databaseName={self.database};"
+#                 "encrypt=true;"
+#                 "trustServerCertificate=true")
+
+#     def query(self, query):
+#         connection_properties = {
+#             "user": self.username,
+#             "password": self.password,
+#             "driver": "com.microsoft.sqlserver.jdbc.SQLServerDriver"
+#         }
+#         return spark.read.format("jdbc") \
+#             .option("url", self.get_jdbc_url()) \
+#             .option("query", query) \
+#             .options(**connection_properties) \
+#             .load()
+
+
+# class DataProcessor:
+#     """Processes and transforms data."""
+#     def __init__(self, spark_session):
+#         self.spark = spark_session
+
+#     def read_csv(self, file_path):
+#         return self.spark.read.csv(file_path, header=True, inferSchema=True)
+
+#     def clean_data(self, fin_df, csv_df):
+#         return fin_df.join(csv_df, fin_df.productName == csv_df.productName, "left") \
+#             .select(
+#                 fin_df.Email.alias("Email"),
+#                 fin_df.FirstName.alias("FirstName"),
+#                 fin_df.LastName.alias("LastName"),
+#                 fin_df.LastLogin.alias("LastLogin"),
+#                 fin_df.prodSubscrId.alias("prodSubscrId"),
+#                 fin_df.prodStatsId.alias("prodStatsId"),
+#                 fin_df.productName.alias("productName"),
+#                 fin_df.ProductLastLogin.alias("ProductLastLogin"),
+#                 fin_df.fDashBoard.alias("fDashBoard"),
+#                 fin_df.snapshotdate_db.alias("snapshot_date"),
+#                 csv_df.StatusPageName.alias("StatusPageName"),
+#                 fin_df.CompanyNameSource.alias("CompanyNameSource")
+#             ).orderBy("Email")
+
+
+# class Application:
+#     """Main application class."""
+#     def __init__(self, spark_session):
+#         self.spark = spark_session
+#         self.date_utils = DateUtils()
+#         self.file_manager = FileManager()
+#         self.data_processor = DataProcessor(spark_session)
+
+#     def run(self):
+#         # Get date information
+#         date_str, _, _ = self.date_utils.get_yesterday_start_end_unix_timestamps_milliseconds()
+
+#         # Create output directory
+#         output_dir = f"/Volumes/ds_goc_volumes_dev/external_data/ma-ds-goc-prd-prod-storage-layer-eu-central-1/raw_goc_nosara_lkh/rawStatusPageSubscriptions/{date_str}/"
+#         self.file_manager.create_directory_if_not_exists(output_dir)
+
+#         # Retrieve secrets
+#         sql_server = dbutils.secrets.get(scope="goc_secrets", key="sqlFINServer")
+#         jdbc_username = dbutils.secrets.get(scope="goc_secrets", key="userFinStats")
+#         jdbc_password = dbutils.secrets.get(scope="goc_secrets", key="passFinStats")
+#         sql_db = dbutils.secrets.get(scope="goc_secrets", key="sqlFinDB")
+#         table_view = dbutils.secrets.get(scope="goc_secrets", key="sqlFinView")
+
+#         # Initialize JDBC connection
+#         jdbc_connection = JDBCConnection(sql_server, sql_db, jdbc_username, jdbc_password)
+
+#         # Query data
+#         query = f"""
+#         SELECT
+#             [UserName], [Email], [FirstName], [LastName], [active user], [CreatedDate],
+#             [Expires], [LastLogin], [Company ID Source], [Company Name Source] as CompanyNameSource,
+#             [UserId], [UserType], [prodSubscrId], [prodStatsId], [productName], [prodExpires],
+#             [ProductLastLogin], [AccountNoPromo], [UserNoPromo], [fDashBoard], [Region],
+#             [tag], [dtExtract], CONVERT(date, GETDATE()) as snapshotdate_db
+#         FROM {table_view}
+#         """
+#         fin_df = jdbc_connection.query(query)
+
+#         # Read CSV data
+#         csv_file_path = "/Volumes/ds_goc_volumes_dev/external_data/ma-ds-goc-prd-prod-storage-layer-eu-central-1/auxiliar_docs/StatusPage_ProductsNames.csv"
+#         csv_df = self.data_processor.read_csv(csv_file_path)
+
+#         # Clean and process data
+#         clean_fin_df = self.data_processor.clean_data(fin_df, csv_df)
+
+#         # Write output
+#         if clean_fin_df.head(1):
+#             clean_fin_df.write.mode("overwrite").parquet(output_dir)
+#         else:
+#             raise ValueError("The extracted dataframe CleanFinDF is empty.")
+
+
+# if __name__ == "__main__":
+#     spark = SparkSession.builder.appName("DataProcessingApp").getOrCreate()
+#     app = Application(spark)
+#     app.run()
